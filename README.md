@@ -215,7 +215,7 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for branch conventions, PR process, and
 ## Roadmap
 
 - [x] Project architecture & documentation
-- [ ] Sprint 1 — repo setup + Google Places ingestion
+- [x] Sprint 1 — repo setup + Google Places ingestion
 - [ ] Sprint 2 — Airflow DAGs + dbt models
 - [ ] Sprint 3 — pgvector embeddings + RAG
 - [ ] Sprint 4 — LangChain agent + tools
