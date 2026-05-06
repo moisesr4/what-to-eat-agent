@@ -1,18 +1,24 @@
-version: "3.9"
+x-airflow-env: &airflow-env
+  AIRFLOW__CORE__EXECUTOR: LocalExecutor
+  AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+  AIRFLOW__CORE__FERNET_KEY: ""
+  AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+  AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+  # Use FAB auth manager so _AIRFLOW_WWW_USER_CREATE works and login is username/password
+  AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
+  AIRFLOW__CORE__INTERNAL_API_URL: "http://airflow-api-server:8080"
+
 
 x-airflow-common: &airflow-common
-  image: apache/airflow:2.9.1
+  image: apache/airflow:3.2.0
   env_file: .env
   environment:
-    AIRFLOW__CORE__EXECUTOR: LocalExecutor
-    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
-    AIRFLOW__CORE__FERNET_KEY: ""
-    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
-    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    <<: *airflow-env
   volumes:
     - ./services/pipeline/dags:/opt/airflow/dags
     - ./services/pipeline/tasks:/opt/airflow/tasks
     - airflow-logs:/opt/airflow/logs
+    - ~/.config/gcloud/application_default_credentials.json:/home/airflow/.config/gcloud/application_default_credentials.json:ro
   depends_on:
     postgres:
       condition: service_healthy
@@ -33,9 +39,10 @@ services:
       retries: 5
     restart: unless-stopped
 
-  airflow-webserver:
+  # In Airflow 3.x `airflow webserver` was removed; use `api-server` instead
+  airflow-api-server:
     <<: *airflow-common
-    command: webserver
+    command: api-server
     ports:
       - "8080:8080"
     healthcheck:
@@ -43,21 +50,51 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
+      start_period: 60s
     restart: unless-stopped
 
   airflow-scheduler:
     <<: *airflow-common
     command: scheduler
+    healthcheck:
+      test: ["CMD-SHELL", 'airflow jobs check --job-type SchedulerJob --hostname "$${HOSTNAME}"']
+      interval: 60s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
     restart: unless-stopped
 
+  airflow-triggerer:
+    <<: *airflow-common
+    command: triggerer
+    healthcheck:
+      test: ["CMD-SHELL", 'airflow jobs check --job-type TriggererJob --hostname "$${HOSTNAME}"']
+      interval: 60s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  airflow-dag-processor:
+    <<: *airflow-common
+    command: dag-processor
+    restart: unless-stopped
+
+  # One-shot init service — run via `make airflow-init`, not `make airflow-up`
   airflow-init:
     <<: *airflow-common
-    command: version
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - exec /entrypoint airflow version
     environment:
-      _AIRFLOW_DB_UPGRADE: "true"
+      <<: *airflow-env
+      _AIRFLOW_DB_MIGRATE: "true"
       _AIRFLOW_WWW_USER_CREATE: "true"
-      _AIRFLOW_WWW_USER_USERNAME: admin
-      _AIRFLOW_WWW_USER_PASSWORD: admin
+      _AIRFLOW_WWW_USER_USERNAME: ${_AIRFLOW_WWW_USER_USERNAME:-admin}
+      _AIRFLOW_WWW_USER_PASSWORD: ${_AIRFLOW_WWW_USER_PASSWORD:-admin}
+      AIRFLOW__CORE__INTERNAL_API_URL: http://airflow-api-server:8080
+    user: "0:0"
 
   api:
     build:
