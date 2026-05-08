@@ -2,8 +2,8 @@
 
 > Conversational AI agent that helps you find the best restaurant near you — filtering by distance, rating, free delivery, and live offers.
 
-![Python](https://img.shields.io/badge/Python-3.11-blue)
-![Airflow](https://img.shields.io/badge/Airflow-2.9-teal)
+![Python](https://img.shields.io/badge/Python-3.13-blue)
+![Airflow](https://img.shields.io/badge/Airflow-3.2-teal)
 ![LangChain](https://img.shields.io/badge/LangChain-0.2-purple)
 ![GCP](https://img.shields.io/badge/GCP-Cloud%20Run-orange)
 ![License](https://img.shields.io/badge/license-MIT-green)
@@ -68,7 +68,7 @@ The agent reasons over real restaurant data (Google Places API + Yelp) and respo
 
 | Layer | Tool | Why |
 |---|---|---|
-| Orchestration | Apache Airflow 2.9 | Industry standard, DAG-based, runs locally in Docker |
+| Orchestration | Apache Airflow 3.2 | Industry standard, DAG-based, runs locally in Docker |
 | Transformation | dbt + BigQuery | Modern DE standard, SQL-based, great for portfolios |
 | Data validation | Great Expectations | Data quality checks integrated in the pipeline |
 | Storage | BigQuery | Scalable, GCP-native, free tier 1TB/month |
@@ -89,41 +89,20 @@ The agent reasons over real restaurant data (Google Places API + Yelp) and respo
 ```
 what-to-eat-agent/
 ├── apps/
-│   └── ui/                     # Streamlit app
-│       └── app.py
+│   └── ui/                     # Streamlit app (Sprint 5)
 ├── services/
-│   ├── api/                    # FastAPI backend
-│   │   └── main.py
-│   ├── agent/                  # LangChain agent + tools
-│   │   ├── agent.py
-│   │   └── tools/
-│   │       ├── search_restaurants.py
-│   │       └── compare_options.py
+│   ├── api/                    # FastAPI backend (Sprint 5)
 │   └── pipeline/               # Airflow DAGs + tasks
 │       ├── dags/
-│       │   ├── ingest.py
-│       │   ├── validate.py
-│       │   └── transform.py
+│       │   └── ingest_restaurants.py   # Sprint 2: parallel fetch → BigQuery
 │       └── tasks/
-│           ├── fetch_places.py
-│           ├── fetch_yelp.py
-│           └── load.py
-├── packages/
-│   └── shared/                 # Shared config, logging, Pydantic models
-├── dbt/
-│   ├── models/
-│   │   ├── staging/
-│   │   │   └── stg_restaurants.sql
-│   │   └── marts/
-│   │       └── restaurants_enriched.sql
-│   └── dbt_project.yml
-├── infra/
-│   └── gcp/                    # Cloud Run, BigQuery configs
-├── .github/
-│   └── workflows/
-│       └── ci.yml
+│           ├── fetch_places.py         # Sprint 1: Google Places Nearby Search
+│           └── load_bigquery.py        # Sprint 1: stream-insert to raw.restaurants
+├── dbt/                        # dbt models (Sprint 3+)
+├── infra/                      # GCP configs (Sprint 6)
+├── docker-compose.yml          # Airflow 3.2 stack (api-server, scheduler, triggerer, dag-processor, postgres)
+├── Makefile                    # airflow-bootstrap / airflow-up / airflow-down / …
 ├── .env.example
-├── docker-compose.yml
 └── README.md
 ```
 
@@ -133,16 +112,16 @@ what-to-eat-agent/
 
 ### Prerequisites
 
-- Python 3.11+
-- Docker + Docker Compose
+- Python 3.13+
+- Docker Desktop
 - GCP account with billing enabled (free tier is enough)
 - Google Places API key
-- Yelp Fusion API key
+- GCP Application Default Credentials configured (`gcloud auth application-default login`)
 
 ### 1. Clone the repo
 
 ```bash
-git clone https://github.com/your-username/what-to-eat-agent.git
+git clone https://github.com/moisesr4/what-to-eat-agent.git
 cd what-to-eat-agent
 ```
 
@@ -153,27 +132,43 @@ cp .env.example .env
 # Fill in your API keys in .env
 ```
 
-### 3. Start local services (Airflow + API + UI)
+### 3. First-time Airflow setup
 
 ```bash
-docker-compose up --build
+make airflow-bootstrap   # runs DB migration + creates admin user + starts all services
 ```
 
-| Service | URL |
-|---|---|
-| Airflow UI | http://localhost:8080 |
-| FastAPI docs | http://localhost:8000/docs |
-| Streamlit app | http://localhost:8501 |
+On subsequent starts:
+
+```bash
+make airflow-up
+```
+
+| Service | URL | Credentials |
+|---|---|---|
+| Airflow UI | http://localhost:8080 | admin / admin |
+
+Available Makefile targets:
+
+```
+make airflow-up        # start all services in background
+make airflow-down      # stop and remove containers
+make airflow-restart   # restart without losing volumes
+make airflow-logs      # follow logs of all services
+make airflow-ps        # show container status
+make airflow-shell     # open bash in api-server container
+make airflow-clean     # full reset (removes volumes)
+```
 
 ### 4. Run the ingestion pipeline
 
-Open Airflow UI → trigger `ingest_restaurants` DAG manually, or wait for the daily schedule (08:00 AM).
+Open the Airflow UI → unpause `ingest_restaurants` → trigger manually, or wait for the daily schedule (08:00 UTC).
+
+The DAG fetches restaurants from 4 zones in parallel (Paris 14e, Paris 15e, Meudon, Boulogne-Billancourt) via the Google Places API and stream-inserts them into BigQuery (`raw.restaurants`).
 
 ### 5. Chat with the agent
 
-Open http://localhost:8501 and ask something like:
-
-> *"Find me a sushi place near the Eiffel Tower with more than 4 stars and free delivery"*
+> Coming in Sprint 4 — LangChain agent + tools.
 
 ---
 
@@ -215,10 +210,10 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for branch conventions, PR process, and
 ## Roadmap
 
 - [x] Project architecture & documentation
-- [x] Sprint 1 — repo setup + Google Places ingestion
-- [ ] Sprint 2 — Airflow DAGs + dbt models
-- [ ] Sprint 3 — pgvector embeddings + RAG
-- [ ] Sprint 4 — LangChain agent + tools
+- [x] Sprint 1 — repo setup + Google Places ingestion (`fetch_places`, `load_bigquery`)
+- [x] Sprint 2 — Airflow 3.2 in Docker + `ingest_restaurants` DAG (4-zone parallel fetch → BigQuery)
+- [ ] Sprint 3 — dbt models + data validation
+- [ ] Sprint 4 — LangChain agent + tools + pgvector RAG
 - [ ] Sprint 5 — FastAPI + Streamlit UI
 - [ ] Sprint 6 — Cloud Run deploy + CI/CD + LangSmith
 

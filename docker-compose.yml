@@ -1,12 +1,20 @@
 x-airflow-env: &airflow-env
   AIRFLOW__CORE__EXECUTOR: LocalExecutor
   AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
-  AIRFLOW__CORE__FERNET_KEY: ""
+  # Fernet key for encrypting connection passwords in the DB. Must be identical across all containers.
+  AIRFLOW__CORE__FERNET_KEY: "3vh2_87dfRAB0GUzc5-Mlr4fUQngrJR-MyerPr3QLp0="
   AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
   AIRFLOW__CORE__LOAD_EXAMPLES: "false"
   # Use FAB auth manager so _AIRFLOW_WWW_USER_CREATE works and login is username/password
   AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
   AIRFLOW__CORE__INTERNAL_API_URL: "http://airflow-api-server:8080"
+  # Execution API: where task subprocesses (run inside the scheduler) connect to report state.
+  # Defaults to http://localhost:8080/execution/ which points at the wrong container.
+  AIRFLOW__CORE__EXECUTION_API_SERVER_URL: "http://airflow-api-server:8080/execution/"
+  # Shared JWT signing secret. Without this every container generates its own random key
+  # at startup, so the scheduler's tokens are rejected by the api-server with "Signature
+  # verification failed". Must be identical across all containers.
+  AIRFLOW__API_AUTH__JWT_SECRET: "_vtXvHtWyETjLDZO_6S0Nd2fOGUf-5OqNu2RteLFu4Q"
 
 
 x-airflow-common: &airflow-common
@@ -46,7 +54,7 @@ services:
     ports:
       - "8080:8080"
     healthcheck:
-      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/api/v2/monitor/health"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -56,6 +64,11 @@ services:
   airflow-scheduler:
     <<: *airflow-common
     command: scheduler
+    depends_on:
+      postgres:
+        condition: service_healthy
+      airflow-api-server:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", 'airflow jobs check --job-type SchedulerJob --hostname "$${HOSTNAME}"']
       interval: 60s
@@ -67,6 +80,11 @@ services:
   airflow-triggerer:
     <<: *airflow-common
     command: triggerer
+    depends_on:
+      postgres:
+        condition: service_healthy
+      airflow-api-server:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", 'airflow jobs check --job-type TriggererJob --hostname "$${HOSTNAME}"']
       interval: 60s
@@ -78,6 +96,11 @@ services:
   airflow-dag-processor:
     <<: *airflow-common
     command: dag-processor
+    depends_on:
+      postgres:
+        condition: service_healthy
+      airflow-api-server:
+        condition: service_healthy
     restart: unless-stopped
 
   # One-shot init service — run via `make airflow-init`, not `make airflow-up`
