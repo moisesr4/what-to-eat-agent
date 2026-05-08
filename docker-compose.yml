@@ -2,7 +2,7 @@ x-airflow-env: &airflow-env
   AIRFLOW__CORE__EXECUTOR: LocalExecutor
   AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
   # Fernet key for encrypting connection passwords in the DB. Must be identical across all containers.
-  AIRFLOW__CORE__FERNET_KEY: "3vh2_87dfRAB0GUzc5-Mlr4fUQngrJR-MyerPr3QLp0="
+  AIRFLOW__CORE__FERNET_KEY: "${AIRFLOW_FERNET_KEY}"
   AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
   AIRFLOW__CORE__LOAD_EXAMPLES: "false"
   # Use FAB auth manager so _AIRFLOW_WWW_USER_CREATE works and login is username/password
@@ -14,7 +14,7 @@ x-airflow-env: &airflow-env
   # Shared JWT signing secret. Without this every container generates its own random key
   # at startup, so the scheduler's tokens are rejected by the api-server with "Signature
   # verification failed". Must be identical across all containers.
-  AIRFLOW__API_AUTH__JWT_SECRET: "_vtXvHtWyETjLDZO_6S0Nd2fOGUf-5OqNu2RteLFu4Q"
+  AIRFLOW__API_AUTH__JWT_SECRET: "${AIRFLOW_JWT_SECRET}"
 
 
 x-airflow-common: &airflow-common
