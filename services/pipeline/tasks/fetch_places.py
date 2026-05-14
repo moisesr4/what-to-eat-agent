@@ -17,6 +17,7 @@ load_dotenv()
 
 ENDPOINT = "https://places.googleapis.com/v1/places:searchNearby"
 MAX_RESULTS = 20  # API hard limit per request
+MIN_REVIEW_CHARS = 50  # discard one-liners that add no semantic value
 
 FIELD_MASK = (
     "places.id,"
@@ -48,7 +49,8 @@ FIELD_MASK = (
     "places.goodForGroups,"
     "places.paymentOptions,"
     "places.parkingOptions,"
-    "places.accessibilityOptions"
+    "places.accessibilityOptions,"
+    "places.reviews"
 )
 
 
@@ -105,6 +107,11 @@ def _flatten(place: dict, zone: str, fetched_at: str) -> dict:
         "wheelchair_accessible_restroom": accessibility.get("wheelchairAccessibleRestroom"),
         "wheelchair_accessible_seating": accessibility.get("wheelchairAccessibleSeating"),
         "photo_count": len(photos),
+        "reviews": " ".join(
+            r["text"]["text"]
+            for r in place.get("reviews", [])
+            if len(r.get("text", {}).get("text", "")) >= MIN_REVIEW_CHARS
+        ) or None,
         "zone": zone,
         "fetched_at": fetched_at,
     }

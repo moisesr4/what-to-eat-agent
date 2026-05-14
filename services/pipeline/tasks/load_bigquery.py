@@ -11,6 +11,7 @@ Run `gcloud auth application-default login` once locally.
 """
 
 import os
+import time
 
 from dotenv import load_dotenv
 from google.cloud import bigquery
@@ -61,6 +62,7 @@ SCHEMA = [
     bigquery.SchemaField("wheelchair_accessible_restroom", "BOOL"),
     bigquery.SchemaField("wheelchair_accessible_seating", "BOOL"),
     bigquery.SchemaField("photo_count", "INT64"),
+    bigquery.SchemaField("reviews", "STRING"),
     bigquery.SchemaField("zone", "STRING"),
     bigquery.SchemaField("fetched_at", "STRING"),
 ]
@@ -72,9 +74,24 @@ def _ensure_dataset(client: bigquery.Client, dataset_ref: bigquery.DatasetRefere
     client.create_dataset(dataset, exists_ok=True)
 
 
+_SCHEMA_PROPAGATION_WAIT_S = 10  # BigQuery needs time to propagate new columns before streaming inserts
+
+
+def _patch_schema(client: bigquery.Client, table_ref: bigquery.TableReference) -> None:
+    """Add any columns present in SCHEMA but missing from the live table."""
+    table = client.get_table(table_ref)
+    existing = {f.name for f in table.schema}
+    missing = [f for f in SCHEMA if f.name not in existing]
+    if missing:
+        table.schema = list(table.schema) + missing
+        client.update_table(table, ["schema"])
+        time.sleep(_SCHEMA_PROPAGATION_WAIT_S)
+
+
 def _ensure_table(client: bigquery.Client, table_ref: bigquery.TableReference) -> None:
     table = bigquery.Table(table_ref, schema=SCHEMA)
     client.create_table(table, exists_ok=True)
+    _patch_schema(client, table_ref)
 
 
 def load_to_bigquery(
